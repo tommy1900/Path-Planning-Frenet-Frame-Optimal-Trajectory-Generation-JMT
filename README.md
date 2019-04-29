@@ -1,10 +1,10 @@
 # Introduction
 This is a revisit for the path planning project of the Self-Driving Car Engineer Nanodegree Program. I don't see much students actually utilizing the JMT approach for this project, mainly because the inaccurate conversion between Cartesian and Frenet, which causes a lot bad waypoints/map offets and inconsistency of trajectory generations. After fixing the getXY function with spline tools, the JMT algorithm works much better but there is still space to improve (like make the general map data resolution finer, currently it has sample points about 30 meters away from each other. Shown below)   
-'''cpp
+```cpp
 784.6001 1135.571 0 -0.02359831 -0.9997216
 815.2679 1134.93 30.6744785308838 -0.01099479 -0.9999396
 844.6398 1134.911 60.0463714599609 -0.002048373 -0.9999979
-'''
+```
 Since I'm not doing the project to pass the course, I won't worry about the conversion error/spikes too much. I'm just trying to realize the optimal trajectory generation [this paper](http://video.udacity-data.com.s3.amazonaws.com/topher/2017/July/595fd482_werling-optimal-trajectory-generation-for-dynamic-street-scenarios-in-a-frenet-frame/werling-optimal-trajectory-generation-for-dynamic-street-scenarios-in-a-frenet-frame.pdf), to make the vehicle able to performe good trajectory decision with out the help of behavioral layer. With just the help of 5th and 6th order degree polynominal.
 
 # Optimal Trajectory Generation Steps
@@ -16,7 +16,7 @@ To ensure the consistency of the solution, a reasonable replan frequency has to 
 ## The Starting States and End States 
 To form a quintic/quartic polynomial, we need the initial state's position, velocity and acceleration (part of the boundary conditions to solve for the trajectory coeffcients). For the very first trajectory, I just used ego car's current position, velocity = 0 and acceleration = 0 for both longitudinal and lateral starting states. For end states, there will be no lateral movements(just for the sake of initalize it) and the desired ending velocity will be the speed limit with a traveling time of path horizon*0.02 (where the 0.02 is the sampling time of the simulator and I pick the path horizon to be 250, so 5 seconds travel time in total).  The first lateral and longitudinal solution also play the role of intializing the global "best trajectory" slot.
 
-'''cpp
+```cpp
   // start the planing
   if(unused_plan_size == 0){
    // set intial s and d conditions
@@ -41,9 +41,9 @@ To form a quintic/quartic polynomial, we need the initial state's position, velo
    double cost = lateral_w * d_traj.getCost() + longitudinal_w * s_traj.getCost();
    bestTraj = {{s_traj,d_traj},cost}; // fist init of the best traj
 
-'''
+```
 Once the ego vehicle starts running, we keep checking if the trajectory need a replan:
-'''cpp
+```cpp
   double gone_path = prev_plan_size - unused_plan_size;
   if ( gone_path >= replan_period) { 
     // replan for the states after a certain predict_horizon
@@ -61,13 +61,13 @@ Once the ego vehicle starts running, we keep checking if the trajectory need a r
      s_BC.clear();
      d_BC.clear();
      double t_f =  (path_horizon - (gone_path+predict_horizon))*0.02; // maintain the total time to be 5 sec
-'''
+```
 Where the predict horizon here work like a buffer for the selecting for new trajectory process. Once the old path reaches the replan timestamp, we need some time to replan a new one and send it to the next waypoints collector right? So instead of plannig for the trajectory starting right now, we plan for the trajectory 400ms later( I pick predict horizon to be 20 steps). To get the information of the car states, we use the trajectory(polynomial coefficients) we generated from last iteration. (Details of the calculation in the trajectory.h file, all just straight froward math)
 
 
 ## Lateral Trajectory Generation  
 We can get starting states from the last trajectory (mentioned above), and the variables we can play around is the travel duration and final lane position. So, 3 lane change options and a iteration loop to try different travel duration from 1.5 seconds to 4.6 sec (4.6 come from 5 sec - 0.4(replan steps) - 0.4(predict buffer), and I use 1.5 as the minimum travel time to avoid fast lane change maneuvers). Then push all resulted trajectory into the set corresponding to the lane number. The trajectory generation function is the same process for Jerk Minimize Trajectory(JMT) since we know the end location, so we have 6 boundary condition ready to form a quintic polynimial. The cost for each trajectory is: Integral of jerk over time + total time spent + total distance traveled^2
-'''cpp
+```cpp
    vector<double> lanes = {2., 6., 9.5};
    vector<vector<Traj>> lateralTrajs(3);
    // the lateral variables: final lanes and durations
@@ -79,7 +79,7 @@ We can get starting states from the last trajectory (mentioned above), and the v
        lateralTrajs[i].push_back(d_traj);
      }
    }
-'''
+```
  
  If you want to learn more about why using JMT and how to derive it from the Euler-Lagrange equation: [check out this](http://courses.shadmehrlab.org/Shortcourse/minimumjerk.pdf) and [jerk motion in general](https://www.emis.de/journals/BJGA/v21n1/B21-1po-b71.pdf)  
 If you want to dig deeper into trajectory optimization, here is a very interesing [paper](http://www-personal.acfr.usyd.edu.au/spns/cdm/papers/Mellinger.pdf) about how to utilize snap minimizing trajectory to minimize the control effort of UAV(How to relate trajectory planning and nonlinear vehicle dynamic together) 
@@ -94,7 +94,7 @@ However I did not use the JMT 6th degree polynomial, mainly just because the unc
 
 Yes using some behavior planner logic like check if vehicle bloack ahead or if it is good to merge or pass, or how many vehicles ahead etc. will difinitely help reducing the calculation time to find the feasible solution. Plus, if you do so, the same time you can get a exact desired end-position for the trajectory generation, so you can use JMT. But all of those I just mentioned requires accurate snesor data/state estimation and most important consistent controller sampling time (in this case, the simulator sampling freq). If not, then the end-position will not be accurate and the ego vehicle will end up drive into wrong positions (collision occur when space is tight). This is the main reason why I did not use it, but this is just my own approach and I just spent few days on it. You can definitely try it out if you can spend some time improve the accuracy of the map resoltion and Cartesian/Frenet conversion.   
 
-'''cpp
+```cpp
   vector<vector<Traj>> longitudinalTraj(3);
   // if the longitudinal path are free ended, we only have 5 boundary conditions,
   // the only variable to change will be the durations and final vel based on the duration
@@ -126,11 +126,11 @@ Yes using some behavior planner logic like check if vehicle bloack ahead or if i
       }
     }
   }
-'''
+```
 
 ## Longitudinal and Lateral Trajectory Combination and Collision Check
 As the picture shown above, all types of vehicle behavior can be generated by combining the successor lateral and longitudinal trajectories, and find the one with the best cost, convert it into the Cartesian frame and publish it as the next waypoints.
-'''cpp
+```cpp
  for(int i = 0; i< 3; ++i){ // three lanes combination
    for(auto laTraj:lateralTrajs[i]){
      for(auto loTraj:longitudinalTraj[i]){
@@ -160,12 +160,12 @@ As the picture shown above, all types of vehicle behavior can be generated by co
    next_y_vals.push_back(sxy[1]);
    prev_plan_size++;
  }
-'''
+```
 Note: There are some cases I will abandon the trajectory combination:
 * When the lateral movement taking more time to finish than longitudinal, this will result in car moving puring horizontally after certain point, which is not physically possible. 
 * When there's collision occur (other vehicle interfere the trajectory), tested with a body box, any contact within +-3 meter in x or +- 1 meter in y with abandon that trajectory. 
 * Any trajectory with highier cost will be abandoned.
-'''cpp
+```cpp
 Here's the code for collision check:
 bool collisionCheck(Traj& s_traj, Traj& d_traj, int predict_horizon, vector<vector<double>> sensor_fusion){
   double Tf = s_traj.duration; // since s movement has to >= d
@@ -184,11 +184,11 @@ bool collisionCheck(Traj& s_traj, Traj& d_traj, int predict_horizon, vector<vect
   }
   return true;
 }
-'''
+```
 
 # Other Notes
 How I fix the getXY() function, instead of using linear interporate to estimate where s,d locate in the map, direcly use spline too to build the relation:
-'''cpp
+```cpp
 void setupGetXY( const vector<double> &maps_x,
                  const vector<double> &maps_y,
                  const vector<double> &maps_s,
@@ -209,18 +209,18 @@ vector<double> getXY(double s, double d) {
   double y = splineY(s) + d * splinedY(s);
   return {x,y};
 }
-'''
+```
 Integral of jerk^2 for quintic:
- '''c++
+ ```c++
      double jerk_int = 36*a3*a3*T + T3*(192*a4*a4 + 240*a3*a5) + 720*a5*a5*T5 + 144*a3*a4*T2 + 720*a4*a5*T4;
- '''
+ ```
 Integral of jerk^2 for quartic:
- '''c++
+ ```c++
      double jerk_int = 36*a3*a3*T + 144*a3*a4*T2 + 192*a4*a4*T3;
- '''
+ ```
  
  Use Eigen to solve the poly coefficients:
-'''cpp
+```cpp
 MatrixXd a(3,3);
     double T2 =  T*T,
            T3 = T2*T,
@@ -243,7 +243,7 @@ MatrixXd a(3,3);
     a3 = alpha[0];
     a4 = alpha[1];
     a5 = alpha[2];
-'''
+```
 # Some DEMOs
 
 Successfully adapt the traffcic flow:
