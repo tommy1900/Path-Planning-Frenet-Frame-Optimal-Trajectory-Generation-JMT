@@ -1,4 +1,4 @@
-## Introduction
+# Introduction
 This is a revisit for the path planning project of the Self-Driving Car Engineer Nanodegree Program. I don't see much students actually utilizing the JMT approach for this project, mainly because the inaccurate conversion between Cartesian and Frenet, which causes a lot bad waypoints/map offets and inconsistency of trajectory generations. After fixing the getXY function with spline tools, the JMT algorithm works much better but there is still space to improve (like make the general map data resolution finer, currently it has sample points about 30 meters away from each other. Shown below)   
 '''c++
 784.6001 1135.571 0 -0.02359831 -0.9997216
@@ -7,13 +7,13 @@ This is a revisit for the path planning project of the Self-Driving Car Engineer
 '''
 Since I'm not doing the project to pass the course, I won't worry about the conversion error/spikes too much. I'm just trying to realize the optimal trajectory generation [this paper](http://video.udacity-data.com.s3.amazonaws.com/topher/2017/July/595fd482_werling-optimal-trajectory-generation-for-dynamic-street-scenarios-in-a-frenet-frame/werling-optimal-trajectory-generation-for-dynamic-street-scenarios-in-a-frenet-frame.pdf), to make the vehicle able to performe good trajectory decision with out the help of behavioral layer. With just the help of 5th and 6th order degree polynominal.
 
-## Optimal Trajectory Generation Steps
+# Optimal Trajectory Generation Steps
 
-# Bellman’s Principle of Optimality
+## Bellman’s Principle of Optimality
 The reason why we use this method is because the we want an "optimal solution" for the incoming traffice scenario. But insdeat of we makeing the dicision follow some behavior planner(FSM approach), we relay on the theoretical best results of a certain cost function. In other words, we generate all possible trajectories within a selected maneuver duration, and pick the best feasible trajectory over time. Once the optimal solution is founded, the entire path planning shaw maintain optimal (based on the Bellman’s Principle of Optimality).
 To ensure the consistency of the solution, a reasonable replan frequency has to be selected. I picked about 400ms for the step size of each new iteration, which is sufficient enough to generate 3~6 success trajectory. If the replan frequency is too low, that the car maneuver longer than the optimal solution covered time span, may result in overshoot or instablility. More details about this part can be found in the paper. 
 
-# The Starting States and End States 
+## The Starting States and End States 
 To form a quintic/quartic polynomial, we need the initial state's position, velocity and acceleration (part of the boundary conditions to solve for the trajectory coeffcients). For the very first trajectory, I just used ego car's current position, velocity = 0 and acceleration = 0 for both longitudinal and lateral starting states. For end states, there will be no lateral movements(just for the sake of initalize it) and the desired ending velocity will be the speed limit with a traveling time of path horizon*0.02 (where the 0.02 is the sampling time of the simulator and I pick the path horizon to be 250, so 5 seconds travel time in total).  The first lateral and longitudinal solution also play the role of intializing the global "best trajectory" slot.
 
 '''c++
@@ -65,7 +65,7 @@ Once the ego vehicle starts running, we keep checking if the trajectory need a r
 Where the predict horizon here work like a buffer for the selecting for new trajectory process. Once the old path reaches the replan timestamp, we need some time to replan a new one and send it to the next waypoints collector right? So instead of plannig for the trajectory starting right now, we plan for the trajectory 400ms later( I pick predict horizon to be 20 steps). To get the information of the car states, we use the trajectory(polynomial coefficients) we generated from last iteration. (Details of the calculation in the trajectory.h file, all just straight froward math)
 
 
-# Lateral Trajectory Generation  
+## Lateral Trajectory Generation  
 We can get starting states from the last trajectory (mentioned above), and the variables we can play around is the travel duration and final lane position. So, 3 lane change options and a iteration loop to try different travel duration from 1.5 seconds to 4.6 sec (4.6 come from 5 sec - 0.4(replan steps) - 0.4(predict buffer), and I use 1.5 as the minimum travel time to avoid fast lane change maneuvers). Then push all resulted trajectory into the set corresponding to the lane number. The trajectory generation function is the same process for Jerk Minimize Trajectory(JMT) since we know the end location, so we have 6 boundary condition ready to form a quintic polynimial. The cost for each trajectory is: Integral of jerk over time + total time spent + total distance traveled^2
 '''c++
    vector<double> lanes = {2., 6., 9.5};
@@ -84,7 +84,7 @@ We can get starting states from the last trajectory (mentioned above), and the v
  If you want to learn more about why using JMT and how to derive it from the Euler-Lagrange equation: [check out this](http://courses.shadmehrlab.org/Shortcourse/minimumjerk.pdf) and [jerk motion in general](https://www.emis.de/journals/BJGA/v21n1/B21-1po-b71.pdf)  
 If you want to dig deeper into trajectory optimization, here is a very interesing [paper](http://www-personal.acfr.usyd.edu.au/spns/cdm/papers/Mellinger.pdf) about how to utilize snap minimizing trajectory to minimize the control effort of UAV(How to relate trajectory planning and nonlinear vehicle dynamic together) 
  
-# Longitudinal Trajectory Generation 
+## Longitudinal Trajectory Generation 
 There's multiple way to select the longitudinal trajectory in the frenet frame. This part involves the interaction of vehicle surrounding (the sensor fusion part). Since we in a three lane traffic, the vehicle movement will be much natual and smooth if it adapt the on going traffic flow. Which will result in behavior like: no vehicle ahead(keep speed limit), follow(accelerate or deccelerate), pass(accelerate) and merge(accelerate or deccelerate). Then we can basically categrized them into two options: Free end with free velocity(no end-position, end-speed and travel duration as iteration variable), adapt the speed of the surrounding vehicle (known end-position, known end-speed, travel duration as iteration variable). The merge, follow or pass behavior will just be the adapting different vehicle speed but different travel distance/duration, shown in the picture below:
 <p align="center">
      <img src="./LongTraj_options.PNG" alt="Longitudinal Movements" width="40%" height="40%">
@@ -128,7 +128,7 @@ Yes using some behavior planner logic like check if vehicle bloack ahead or if i
   }
 '''
 
-# Longitudinal and Lateral Trajectory Combination and Collision Check
+## Longitudinal and Lateral Trajectory Combination and Collision Check
 As the picture shown above, all types of vehicle behavior can be generated by combining the successor lateral and longitudinal trajectories, and find the one with the best cost, convert it into the Cartesian frame and publish it as the next waypoints.
 '''c++
  for(int i = 0; i< 3; ++i){ // three lanes combination
@@ -186,7 +186,7 @@ bool collisionCheck(Traj& s_traj, Traj& d_traj, int predict_horizon, vector<vect
 }
 '''
 
-## Other Notes
+# Other Notes
 How I fix the getXY() function, instead of using linear interporate to estimate where s,d locate in the map, direcly use spline too to build the relation:
 '''c++
 void setupGetXY( const vector<double> &maps_x,
@@ -244,7 +244,7 @@ MatrixXd a(3,3);
     a4 = alpha[1];
     a5 = alpha[2];
 '''
-### Some DEMOs
+# Some DEMOs
 
 Successfully adapt the traffcic flow:
 <p align="center">
