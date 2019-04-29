@@ -1,5 +1,275 @@
-# CarND-Path-Planning-Project
-Self-Driving Car Engineer Nanodegree Program
+## Introduction
+This is a revisit for the path planning project of the Self-Driving Car Engineer Nanodegree Program. I don't see much students actually utilizing the JMT approach for this project, mainly because the inaccurate conversion between Cartesian and Frenet, which causes a lot bad waypoints/map offets and inconsistency of trajectory generations. After fixing the getXY function with spline tools, the JMT algorithm works much better but there is still space to improve (like make the general map data resolution finer, currently it has sample points about 30 meters away from each other. Shown below)   
+'''c++
+784.6001 1135.571 0 -0.02359831 -0.9997216
+815.2679 1134.93 30.6744785308838 -0.01099479 -0.9999396
+844.6398 1134.911 60.0463714599609 -0.002048373 -0.9999979
+'''
+Since I'm not doing the project to pass the course, I won't worry about the conversion error/spikes too much. I'm just trying to realize the optimal trajectory generation [this paper](http://video.udacity-data.com.s3.amazonaws.com/topher/2017/July/595fd482_werling-optimal-trajectory-generation-for-dynamic-street-scenarios-in-a-frenet-frame/werling-optimal-trajectory-generation-for-dynamic-street-scenarios-in-a-frenet-frame.pdf), to make the vehicle able to performe good trajectory decision with out the help of behavioral layer. With just the help of 5th and 6th order degree polynominal.
+
+## Optimal Trajectory Generation Steps
+
+# Bellman’s Principle of Optimality
+The reason why we use this method is because the we want an "optimal solution" for the incoming traffice scenario. But insdeat of we makeing the dicision follow some behavior planner(FSM approach), we relay on the theoretical best results of a certain cost function. In other words, we generate all possible trajectories within a selected maneuver duration, and pick the best feasible trajectory over time. Once the optimal solution is founded, the entire path planning shaw maintain optimal (based on the Bellman’s Principle of Optimality).
+To ensure the consistency of the solution, a reasonable replan frequency has to be selected. I picked about 400ms for the step size of each new iteration, which is sufficient enough to generate 3~6 success trajectory. If the replan frequency is too low, that the car maneuver longer than the optimal solution covered time span, may result in overshoot or instablility. More details about this part can be found in the paper. 
+
+# The Starting States and End States 
+To form a quintic/quartic polynomial, we need the initial state's position, velocity and acceleration (part of the boundary conditions to solve for the trajectory coeffcients). For the very first trajectory, I just used ego car's current position, velocity = 0 and acceleration = 0 for both longitudinal and lateral starting states. For end states, there will be no lateral movements(just for the sake of initalize it) and the desired ending velocity will be the speed limit with a traveling time of path horizon*0.02 (where the 0.02 is the sampling time of the simulator and I pick the path horizon to be 250, so 5 seconds travel time in total).  The first lateral and longitudinal solution also play the role of intializing the global "best trajectory" slot.
+
+'''c++
+  // start the planing
+  if(unused_plan_size == 0){
+   // set intial s and d conditions
+   s_BC.clear();
+   s_BC.push_back(car_s);
+   s_BC.push_back(0.);
+   s_BC.push_back(0.);
+   s_BC.push_back(speed_limit);
+   s_BC.push_back(0.);
+
+
+   d_BC.clear();
+   d_BC.push_back(car_d);
+   d_BC.push_back(0.);
+   d_BC.push_back(0.);
+   d_BC.push_back(car_d);
+   d_BC.push_back(0.);
+   d_BC.push_back(0.);
+
+   Traj s_traj = Traj(s_BC, path_horizon*0.02);
+   Traj d_traj = Traj(d_BC, path_horizon*0.02);
+   double cost = lateral_w * d_traj.getCost() + longitudinal_w * s_traj.getCost();
+   bestTraj = {{s_traj,d_traj},cost}; // fist init of the best traj
+
+'''
+Once the ego vehicle starts running, we keep checking if the trajectory need a replan:
+'''c++
+  double gone_path = prev_plan_size - unused_plan_size;
+  if ( gone_path >= replan_period) { 
+    // replan for the states after a certain predict_horizon
+    prev_plan_size = 0;
+    // ego car states after timeT (predict_horizon steps after the gone)
+     double timeT =(predict_horizon)*0.02 + 0.01;
+     car_s = bestTraj.first.first.getDist(timeT); // timeT after now
+     car_d = bestTraj.first.second.getDist(timeT);
+
+     double car_s_speed = bestTraj.first.first.getVel(timeT);
+     double car_d_speed = bestTraj.first.second.getVel(timeT);
+     double car_s_accel = bestTraj.first.first.getAcel(timeT);
+     double car_d_accel = bestTraj.first.second.getAcel(timeT);
+    // replan based on the states at timeT
+     s_BC.clear();
+     d_BC.clear();
+     double t_f =  (path_horizon - (gone_path+predict_horizon))*0.02; // maintain the total time to be 5 sec
+'''
+Where the predict horizon here work like a buffer for the selecting for new trajectory process. Once the old path reaches the replan timestamp, we need some time to replan a new one and send it to the next waypoints collector right? So instead of plannig for the trajectory starting right now, we plan for the trajectory 400ms later( I pick predict horizon to be 20 steps). To get the information of the car states, we use the trajectory(polynomial coefficients) we generated from last iteration. (Details of the calculation in the trajectory.h file, all just straight froward math)
+
+
+# Lateral Trajectory Generation  
+We can get starting states from the last trajectory (mentioned above), and the variables we can play around is the travel duration and final lane position. So, 3 lane change options and a iteration loop to try different travel duration from 1.5 seconds to 4.6 sec (4.6 come from 5 sec - 0.4(replan steps) - 0.4(predict buffer), and I use 1.5 as the minimum travel time to avoid fast lane change maneuvers). Then push all resulted trajectory into the set corresponding to the lane number. The trajectory generation function is the same process for Jerk Minimize Trajectory(JMT) since we know the end location, so we have 6 boundary condition ready to form a quintic polynimial. The cost for each trajectory is: Integral of jerk over time + total time spent + total distance traveled^2
+'''c++
+   vector<double> lanes = {2., 6., 9.5};
+   vector<vector<Traj>> lateralTrajs(3);
+   // the lateral variables: final lanes and durations
+   for (int i=0 ; i < 3 ; i++) { // three different lanes
+    // laterl durations: delta_t = 0.7
+     for (double t = 1.5; t <= t_f ; t+=delta_t) { // different time durations
+       d_BC = {car_d,car_d_speed,car_d_accel,lanes[i],0.0,0.0};
+       Traj d_traj = Traj(d_BC, t);
+       lateralTrajs[i].push_back(d_traj);
+     }
+   }
+'''
+ 
+ If you want to learn more about why using JMT and how to derive it from the Euler-Lagrange equation: [check out this](http://courses.shadmehrlab.org/Shortcourse/minimumjerk.pdf) and [jerk motion in general](https://www.emis.de/journals/BJGA/v21n1/B21-1po-b71.pdf)  
+If you want to dig deeper into trajectory optimization, here is a very interesing [paper](http://www-personal.acfr.usyd.edu.au/spns/cdm/papers/Mellinger.pdf) about how to utilize snap minimizing trajectory to minimize the control effort of UAV(How to relate trajectory planning and nonlinear vehicle dynamic together) 
+ 
+# Longitudinal Trajectory Generation 
+There's multiple way to select the longitudinal trajectory in the frenet frame. This part involves the interaction of vehicle surrounding (the sensor fusion part). Since we in a three lane traffic, the vehicle movement will be much natual and smooth if it adapt the on going traffic flow. Which will result in behavior like: no vehicle ahead(keep speed limit), follow(accelerate or deccelerate), pass(accelerate) and merge(accelerate or deccelerate). Then we can basically categrized them into two options: Free end with free velocity(no end-position, end-speed and travel duration as iteration variable), adapt the speed of the surrounding vehicle (known end-position, known end-speed, travel duration as iteration variable). The merge, follow or pass behavior will just be the adapting different vehicle speed but different travel distance/duration, shown in the picture below:
+<p align="center">
+     <img src="./LongTraj_options.PNG" alt="Longitudinal Movements" width="40%" height="40%">
+     <br>LongTraj_options.PNG
+</p>
+However I did not use the JMT 6th degree polynomial, mainly just because the uncertainly and bad measurements/prediction for the sensored surrounding vehicles. So I just used a 5th degree poly(assume not knowing the end-position), trying follow the traffic with differernt time span, which also can create all merge, pass or follow behaviors, just taking more calculating power. Even the jerk is not minimum garanteed, I still added the integral of jerk into the cost function. So the solution should be jerk minimized as well. 
+
+Yes using some behavior planner logic like check if vehicle bloack ahead or if it is good to merge or pass, or how many vehicles ahead etc. will difinitely help reducing the calculation time to find the feasible solution. Plus, if you do so, the same time you can get a exact desired end-position for the trajectory generation, so you can use JMT. But all of those I just mentioned requires accurate snesor data/state estimation and most important consistent controller sampling time (in this case, the simulator sampling freq). If not, then the end-position will not be accurate and the ego vehicle will end up drive into wrong positions (collision occur when space is tight). This is the main reason why I did not use it, but this is just my own approach and I just spent few days on it. You can definitely try it out if you can spend some time improve the accuracy of the map resoltion and Cartesian/Frenet conversion.   
+
+'''c++
+  vector<vector<Traj>> longitudinalTraj(3);
+  // if the longitudinal path are free ended, we only have 5 boundary conditions,
+  // the only variable to change will be the durations and final vel based on the duration
+  for(int i = 0; i< 3; ++i){ // 3 lane options
+    std::sort(lv[i].begin(),lv[i].end(),[](const vector<double> &a,const vector<double>&b){return a[5] > b[5];}); // compare s position
+    double s_lv_t = lv[i].empty()? 0:lv[i][0][5] + sqrt(lv[i].back()[3]*lv[i].back()[3] + lv[i].back()[4]*lv[i].back()[4])*predict_horizon*0.02; // leading vehicle position at timeT
+    if(lv[i].size() == 0 || s_lv_t + 5 <= car_s){ // no leading vehicle
+      // change the to that lane while trying to reach to the desired speed
+      // control the longitudinal duration  inbetween 1.5 - 5
+      for (double t = 2; t <= t_f ; t+=delta_t) { // three different time duration
+        double s_dot_t =  car_s_speed + (speed_limit - car_s_speed)*(t/t_f);
+        s_BC = {car_s,car_s_speed,car_s_accel,s_dot_t,0};
+        Traj s_traj = Traj(s_BC, t);
+        longitudinalTraj[i].push_back(s_traj);
+      }
+    }else { 
+       // if leading vehicles ahead in same lane , just follow it
+      // if the leading vehicles at left or right lanes = lane change maybe
+      // pass it or follow it or meger into it if more than one vehicle
+      double vx = lv[i][0][3];
+      double vy = lv[i][0][4];
+      double s_lv_dot_dot = 0;
+      double s_lv_dot = sqrt(vx*vx + vy*vy);
+      for(double t = 2; t <= t_f ; t+=delta_t){
+        //adapt speed:
+        s_BC = {car_s,car_s_speed,car_s_accel,s_lv_dot,0};
+        Traj s_traj = Traj(s_BC, t);
+        longitudinalTraj[i].push_back(s_traj);
+      }
+    }
+  }
+'''
+
+# Longitudinal and Lateral Trajectory Combination and Collision Check
+As the picture shown above, all types of vehicle behavior can be generated by combining the successor lateral and longitudinal trajectories, and find the one with the best cost, convert it into the Cartesian frame and publish it as the next waypoints.
+'''c++
+ for(int i = 0; i< 3; ++i){ // three lanes combination
+   for(auto laTraj:lateralTrajs[i]){
+     for(auto loTraj:longitudinalTraj[i]){
+       // if changing lane, and d movement takes longer to finish than s movement, abandon it
+      if(abs(car_d - laTraj.getDist(t_f)) > 2 && laTraj.duration > loTraj.duration) continue;
+      if(!collisionCheck(loTraj,laTraj,predict_horizon,sensor_fusion)) continue;
+      double cost = lateral_w * laTraj.getCost() + longitudinal_w * loTraj.getCost();
+      if(cost < bestTraj.second){
+        bestTraj = {{loTraj,laTraj},cost};
+        cout<< "a solution found" << endl;
+        //++solutionCnt;
+      }
+     }
+   }
+ }
+
+ for (int i = 0; i < path_horizon - (predict_horizon + gone_path); i++)
+ {
+   //generate next points using selected trajectory with a time pace of 0.02 seconds
+   double next_s = bestTraj.first.first.getDist(i*0.02);
+   double next_d = bestTraj.first.second.getDist(i*0.02);
+   // convert  to  global coordinates
+   vector<double> sxy = getXY(next_s, next_d);
+
+   // pass points to simulator
+   next_x_vals.push_back(sxy[0]);
+   next_y_vals.push_back(sxy[1]);
+   prev_plan_size++;
+ }
+'''
+Note: There are some cases I will abandon the trajectory combination:
+* When the lateral movement taking more time to finish than longitudinal, this will result in car moving puring horizontally after certain point, which is not physically possible. 
+* When there's collision occur (other vehicle interfere the trajectory), tested with a body box, any contact within +-3 meter in x or +- 1 meter in y with abandon that trajectory. 
+* Any trajectory with highier cost will be abandoned.
+'''c++
+Here's the code for collision check:
+bool collisionCheck(Traj& s_traj, Traj& d_traj, int predict_horizon, vector<vector<double>> sensor_fusion){
+  double Tf = s_traj.duration; // since s movement has to >= d
+  for(double t = 0; t < Tf; t+= 0.02){
+    // sensor_fusion results at time t
+    vector<double> ego_xy = getXY(s_traj.getDist(t),d_traj.getDist(t));
+    // check the acceleration and jerk the same time
+    if(abs(d_traj.getAcel(t)) > 10.0 || abs(d_traj.getJerk(t)) > 10.0 || abs(s_traj.getAcel(t)) > 10.0 || abs(s_traj.getJerk(t)) > 10.0) return false;
+    for(int i = 0; i < sensor_fusion.size(); ++i){
+      double near_x = sensor_fusion[i][1] + sensor_fusion[i][3] * (t + predict_horizon*0.02);
+      double near_y = sensor_fusion[i][2] + sensor_fusion[i][4] * (t + predict_horizon*0.02);
+      if(abs(near_x - ego_xy[0]) <= 3 && abs(near_y - ego_xy[1]) <= 1){
+        return false;
+      }
+    }
+  }
+  return true;
+}
+'''
+
+## Other Notes
+How I fix the getXY() function, instead of using linear interporate to estimate where s,d locate in the map, direcly use spline too to build the relation:
+'''c++
+void setupGetXY( const vector<double> &maps_x,
+                 const vector<double> &maps_y,
+                 const vector<double> &maps_s,
+                 const vector<double> &maps_dx,
+                 const vector<double> &maps_dy){
+
+
+  splineX.set_points(maps_s,maps_x);
+  splineY.set_points(maps_s,maps_y);
+  splinedX.set_points(maps_s,maps_dx);
+  splinedY.set_points(maps_s,maps_dy);
+
+}
+
+vector<double> getXY(double s, double d) {
+  s = fmod(s, max_s);
+  double x = splineX(s) + d * splinedX(s);
+  double y = splineY(s) + d * splinedY(s);
+  return {x,y};
+}
+'''
+Integral of jerk^2 for quintic:
+ '''c++
+     double jerk_int = 36*a3*a3*T + T3*(192*a4*a4 + 240*a3*a5) + 720*a5*a5*T5 + 144*a3*a4*T2 + 720*a4*a5*T4;
+ '''
+Integral of jerk^2 for quartic:
+ '''c++
+     double jerk_int = 36*a3*a3*T + 144*a3*a4*T2 + 192*a4*a4*T3;
+ '''
+ 
+ Use Eigen to solve the poly coefficients:
+'''c++
+MatrixXd a(3,3);
+    double T2 =  T*T,
+           T3 = T2*T,
+           T4 = T3*T,
+           T5 = T4*T;
+    a <<  T3,    T4,    T5,
+        3*T2,  4*T3,  5*T4,
+         6*T, 12*T2, 20*T3;
+    MatrixXd aInv = a.inverse();
+
+    VectorXd b(3);
+    b << BC[3] - (BC[0] + BC[1]*T + 0.5*BC[2]*T2),
+         BC[4] - (           BC[1]   +     BC[2]*T),
+         BC[5] - (                            BC[2]);
+    VectorXd alpha = aInv * b;
+
+    a0 = BC[0];
+    a1 = BC[1];
+    a2 = 0.5 * BC[2];
+    a3 = alpha[0];
+    a4 = alpha[1];
+    a5 = alpha[2];
+'''
+### Some DEMOs
+
+Successfully adapt the traffcic flow:
+<p align="center">
+     <img src="./followTraffic.gif" alt=" " width="40%" height="40%">
+     <br>followTraffic.gif
+</p>
+Moments that bad trajectory desision got abandoned:
+<p align="center">
+     <img src="./abandon1.gif" alt=" " width="40%" height="40%">
+     <br>abandon1.gif
+</p>
+<p align="center">
+     <img src="./abandon2.gif" alt=" " width="40%" height="40%">
+     <br>abandon2.gif
+</p>
+Performance in crowded traffic:
+<p align="center">
+     <img src="./crowdTraffic.gif" alt=" " width="40%" height="40%">
+     <br>crowdTraffic.gif
+</p>
+Agressive drving:
+<p align="center">
+     <img src="./agressiveDriving.gif" alt=" " width="40%" height="40%">
+     <br>agressiveDriving.gif
+</p>
 
 ### Simulator.
 You can download the Term3 Simulator which contains the Path Planning Project from the [releases tab (https://github.com/udacity/self-driving-car-sim/releases/tag/T3_v1.2).  
@@ -8,9 +278,6 @@ To run the simulator on Mac/Linux, first make the binary file executable with th
 ```shell
 sudo chmod u+x {simulator_file_name}
 ```
-
-### Goals
-In this project your goal is to safely navigate around a virtual highway with other traffic that is driving +-10 MPH of the 50 MPH speed limit. You will be provided the car's localization and sensor fusion data, there is also a sparse map list of waypoints around the highway. The car should try to go as close as possible to the 50 MPH speed limit, which means passing slower traffic when possible, note that other cars will try to change lanes too. The car should avoid hitting other cars at all cost as well as driving inside of the marked road lanes at all times, unless going from one lane to another. The car should be able to make one complete loop around the 6946m highway. Since the car is trying to go 50 MPH, it should take a little over 5 minutes to complete 1 loop. Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 10 m/s^3.
 
 #### The map of the highway is in data/highway_map.txt
 Each waypoint in the list contains  [x,y,s,dx,dy] values. x and y are the waypoint's map coordinate position, the s value is the distance along the road to get to that waypoint in meters, the dx and dy values define the unit normal vector pointing outward of the highway loop.
@@ -92,95 +359,3 @@ A really helpful resource for doing this project and creating smooth trajectorie
     git checkout e94b6e1
     ```
 
-## Editor Settings
-
-We've purposefully kept editor configuration files out of this repo in order to
-keep it as simple and environment agnostic as possible. However, we recommend
-using the following settings:
-
-* indent using spaces
-* set tab width to 2 spaces (keeps the matrices in source code aligned)
-
-## Code Style
-
-Please (do your best to) stick to [Google's C++ style guide](https://google.github.io/styleguide/cppguide.html).
-
-## Project Instructions and Rubric
-
-Note: regardless of the changes you make, your project must be buildable using
-cmake and make!
-
-
-## Call for IDE Profiles Pull Requests
-
-Help your fellow students!
-
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to ensure
-that students don't feel pressured to use one IDE or another.
-
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
-
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
-
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
-
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
-
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
-
-## Project Reflection
-
-* Overview
-  * Perception : The sensor_fusion matrix is used to detect the surrunding objects.
-
-  * localization : The highway_map.csv file is provided in both XY coordinate and s,d Fernet coordinate.
-
-  * Predictions : The surrunding vehicle trajectory is predicted based on the information provided by the sensor_fusion.
-
-  * Behaviour planner : A list of decision is generated for the vehicle to follow based on a FSM.
-
-  * Trajectory Generation : the trajectories are generated for all potential behavior decisions, and a finalized trajectory is selected based on a cost function.
-
-* Code Details
-  * In main.cpp line(18 - 104), the map data is generated, and vehicle information is initialized. The localization and sensor fusion data is ready to use.
-  * In main.cpp line 111, the localization information is pushed into the Vehicle object and updated for every single loop.
-  * In main.cpp line 112, the sensor fusion information is pushed into the Vehicle object to serve the prediction function:
-    * In vehicle.cpp line 42, the 'choose_next_state()' function is called to generate potential states can select the optimazed solution:
-      * Line 43, function 'successor_states()' will lay out he possible states based on the FSM showing below:
-        ![image01][./FSM.PNG]
-      * Line 44, function 'check_collision_targets()' is used to predict the possible motions of surrunding objects:
-        * Line (119 - 188) will update the struct 'collider' 's distance and speed (where collider is a list of nearby objects).
-      * Line 56, function 'find_best_state()' will utilize the sensor data and potential list of states to judge for the best solution:
-        * Line 222, the 'Cost' object is created to store the information of cost functions:
-          * In cost.cpp, the cost are considered with 4 different aspects:
-            * The danger of the incoming movement, enough space as buffer? will it cause a collision?
-            * The distance towards the final goal location.
-            * The efficiency of the incoming movement, is the vehicle moving into a faster/slower lane?
-            * The comfort of the passenger, is the vehicle changing line too frequent?
-      * Line 60, function 'realize_next_state()' will update the finalized decision: intended lane and final lane.
-      * Line (88 - 94), is controlling the speed of the vehicle based on the closest potential collider.
-  * In main.cpp line(117-118), the current decision is updated: lane change and speed change.
-  * Line (120 - 233) the path generation logistic is presented:
-      * A target at 30 meter away is set in s coordinate.
-      * Convert target to XY coordinate and create a spline with those points
-      * NOTE a spline method is used here because:
-        * The continuity is ensured (N points is created between the start and end based on the 20ms sampling frequency).
-        * It has a smaller error since it only require a 1st and 2nd order derivative in XY coordinate.
-        * Simple to use, plug in and play will the spline.h lib.
-      * The reason not to use JMT algorithm in this particular project is because:
-        * The JMT algorithm involves a 3rd order derivative (acceleration) for the quintic polynomial IN S COORDINATE, which will create much higher uncertainty since the map given has a 30 meter resolution in XY coordinate, and its even worse if covert into s coordinate.  
-
-  A proof of criteria satisfication is showing below:
-  ![image02][./proofofsuc.PNG]
