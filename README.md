@@ -247,11 +247,13 @@ MatrixXd a(3,3);
 # Some DEMOs
 
 Successfully adapt the traffcic flow:
+
 <p align="center">
      <img src="./followTraffic.gif" alt=" " width="40%" height="40%">
      <br>followTraffic.gif
 </p>
-Moments that bad trajectory desision got abandoned:
+Moments that bad trajectory decision got abandoned:
+
 <p align="center">
      <img src="./abandon1.gif" alt=" " width="40%" height="40%">
      <br>abandon1.gif
@@ -261,11 +263,13 @@ Moments that bad trajectory desision got abandoned:
      <br>abandon2.gif
 </p>
 Performance in crowded traffic:
+
 <p align="center">
      <img src="./crowdTraffic.gif" alt=" " width="40%" height="40%">
      <br>crowdTraffic.gif
 </p>
 Agressive drving:
+
 <p align="center">
      <img src="./agressiveDriving.gif" alt=" " width="40%" height="40%">
      <br>agressiveDriving.gif
