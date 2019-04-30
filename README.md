@@ -294,6 +294,7 @@ The highway's waypoints loop around so the frenet s value, distance along the ro
 2. Make a build directory: `mkdir build && cd build`
 3. Compile: `cmake .. && make`
 4. Run it: `./path_planning`.
+5. Then start the simulator.
 
 Here is the data provided from the Simulator to the C++ Program
 
