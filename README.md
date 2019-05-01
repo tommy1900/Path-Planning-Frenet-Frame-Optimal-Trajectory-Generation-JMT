@@ -1,4 +1,5 @@
-# Introduction (Sorry the code is a bit messy, did not spend much time to organize it :)
+# Introduction 
+(Sorry the code is a bit messy, did not spend much time to organize it :)
 This is a revisit for the path planning project of the Self-Driving Car Engineer Nanodegree Program. I don't see much students actually utilizing the JMT approach for this project, mainly because of the inaccurate conversion between Cartesian and Frenet, which causes a lot bad waypoints/map offsets and inconsistency of trajectory generations. After fixing the getXY function with spline tools, the JMT algorithm works much better, but there is still space to improve (like make the general map data resolution finer. Currently it has sample points about 30 meters away from each other. Shown below)   
 ```cpp
 784.6001 1135.571 0 -0.02359831 -0.9997216
@@ -244,8 +245,8 @@ MatrixXd a(3,3);
     a4 = alpha[1];
     a5 = alpha[2];
 ```
-# Some DEMOs (The Jerk/Accel spikes are just caused by inconsistent Frenet to Cartesian conversion)  
-
+# Some DEMOs 
+(The Jerk/Accel spikes are just caused by inconsistent Frenet to Cartesian conversion)  
 Successfully adapt the traffcic flow:
 
 <p align="center">
