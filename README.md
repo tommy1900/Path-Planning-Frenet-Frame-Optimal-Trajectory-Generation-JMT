@@ -244,7 +244,7 @@ MatrixXd a(3,3);
     a4 = alpha[1];
     a5 = alpha[2];
 ```
-# Some DEMOs
+# Some DEMOs (The Jerk/Accel spikes are just caused by inconsistent Frenet to Cartesian conversion)  
 
 Successfully adapt the traffcic flow:
 
@@ -268,11 +268,11 @@ Performance in crowded traffic:
      <img src="./crowdTraffic.gif" alt=" " width="40%" height="40%">
      <br>crowdTraffic.gif
 </p>
-Agressive drving:
+Aggressive drving:
 
 <p align="center">
      <img src="./agressiveDriving.gif" alt=" " width="40%" height="40%">
-     <br>agressiveDriving.gif
+     <br>aggressiveDriving.gif
 </p>
 
 ### Simulator.
