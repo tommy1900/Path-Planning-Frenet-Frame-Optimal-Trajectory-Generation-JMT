@@ -1,3 +1,34 @@
+# Some DEMOs 
+(The Jerk/Accel spikes are just caused by inconsistent Frenet to Cartesian conversion)  
+Successfully adapt the traffcic flow:
+
+<p align="center">
+     <img src="./followTraffic.gif" alt=" " width="40%" height="40%">
+     <br>followTraffic.gif
+</p>
+Moments that bad trajectory decision got abandoned:
+
+<p align="center">
+     <img src="./abandon1.gif" alt=" " width="40%" height="40%">
+     <br>abandon1.gif
+</p>
+<p align="center">
+     <img src="./abandon2.gif" alt=" " width="40%" height="40%">
+     <br>abandon2.gif
+</p>
+Performance in crowded traffic:
+
+<p align="center">
+     <img src="./crowdTraffic.gif" alt=" " width="40%" height="40%">
+     <br>crowdTraffic.gif
+</p>
+Aggressive drving:
+
+<p align="center">
+     <img src="./agressiveDriving.gif" alt=" " width="40%" height="40%">
+     <br>aggressiveDriving.gif
+</p>
+
 # Introduction 
 (Sorry the code is a bit messy, did not spend much time to organize it :)
 This is a revisit for the path planning project of the Self-Driving Car Engineer Nanodegree Program. I don't see much students actually utilizing the JMT approach for this project, mainly because of the inaccurate conversion between Cartesian and Frenet, which causes a lot bad waypoints/map offsets and inconsistency of trajectory generations. After fixing the getXY function with spline tools, the JMT algorithm works much better, but there is still space to improve (like make the general map data resolution finer. Currently it has sample points about 30 meters away from each other. Shown below)   
@@ -245,36 +276,6 @@ MatrixXd a(3,3);
     a4 = alpha[1];
     a5 = alpha[2];
 ```
-# Some DEMOs 
-(The Jerk/Accel spikes are just caused by inconsistent Frenet to Cartesian conversion)  
-Successfully adapt the traffcic flow:
-
-<p align="center">
-     <img src="./followTraffic.gif" alt=" " width="40%" height="40%">
-     <br>followTraffic.gif
-</p>
-Moments that bad trajectory decision got abandoned:
-
-<p align="center">
-     <img src="./abandon1.gif" alt=" " width="40%" height="40%">
-     <br>abandon1.gif
-</p>
-<p align="center">
-     <img src="./abandon2.gif" alt=" " width="40%" height="40%">
-     <br>abandon2.gif
-</p>
-Performance in crowded traffic:
-
-<p align="center">
-     <img src="./crowdTraffic.gif" alt=" " width="40%" height="40%">
-     <br>crowdTraffic.gif
-</p>
-Aggressive drving:
-
-<p align="center">
-     <img src="./agressiveDriving.gif" alt=" " width="40%" height="40%">
-     <br>aggressiveDriving.gif
-</p>
 
 ### Simulator.
 You can download the Term3 Simulator which contains the Path Planning Project from the [releases tab (https://github.com/udacity/self-driving-car-sim/releases/tag/T3_v1.2).  
