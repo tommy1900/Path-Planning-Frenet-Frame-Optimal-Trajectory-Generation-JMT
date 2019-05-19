@@ -22,7 +22,7 @@ Performance in crowded traffic:
      <img src="./crowdTraffic.gif" alt=" " width="40%" height="40%">
      <br>crowdTraffic.gif
 </p>
-Aggressive drving:
+Aggressive driving:
 
 <p align="center">
      <img src="./agressiveDriving.gif" alt=" " width="40%" height="40%">
